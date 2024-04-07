@@ -68,7 +68,7 @@ app.post('/writingPost',function(req,res) {
   });
   compile.on('close',function(data){
       if(data ==0) {
-          var run = spawn('./a.exe',[]);    
+          var run = spawn('./a.',[]);    
           run.stdout.on('data',function(output){
               console.log('컴파일 완료');
               var responseData = {'result':'ok','output': output.toString('utf8')};
