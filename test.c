@@ -1,6 +1,10 @@
 #include <stdio.h>
 
-void main() {
-    printf("장우 ㅇㅇ끼");
-    return 0;
+int main() {
+    int a, b;
+    int sum = 0;
+    a = 10;
+    b = 20;
+    sum = a + b;
+    printf("%d",sum);
 }

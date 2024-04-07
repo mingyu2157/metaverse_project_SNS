@@ -2,50 +2,6 @@
 <!-- End of head -->
 <%-include('header.ejs')-%>
 <!-- End of header -->
-
-<!-- 
-    게시글 작성하기
-    1.제목, 코드, 결과값, 태그를 입력하면 DB에 저장, postDetails에 불러올 수 있어야함.
-    2.작성자 정보와 게시글 정보를 DB에 저장 -> DB설계
-    3.'작성하기'버튼 추가
--->
-
-<!-- <div class="writingPostBox alignment">
-    <div class="emptyBox"></div>
-    <div class="writingPost">
-        <form action="###">
-            <input type="text" name="title" placeholder="제목">
-            <textarea name="inputCode" id="" rows="9" placeholder="코드"></textarea>
-            <textarea name="outputCode" id="" rows="9" placeholder="결과"></textarea>
-            <input id="output" type="text" name="output" readonly="readonly">
-            <input type="text" name="hashtag" placeholder="태그">
-            <input id="ajax_post" type="button" value="제출하기" class="ajaxsend">
-            <button type="submit">작성</button>
-        </form>
-        <script>
-            document.querySelector('.ajaxsend').addEventListener('click', function(){
-                sendAjax('http://localhost:3000/WritionPost', document.getElementById('code').value);
-            });
-    
-            function sendAjax(url, data) { 
-                var data = {'code' : data}; // data 변수에 json 형태로 값이 저장
-                data = JSON.stringify(data); // data 값을 다시 문자열로 변환
-                var xhr = new XMLHttpRequest();
-                xhr.open('POST',url,true) //url 은 클라이언트에서 보낸 값을 처리할 서버쪽의 app.post로 작성된 라우터
-                xhr.setRequestHeader('Content-type', 'application/json');
-                xhr.send(data);
-    
-                xhr.addEventListener('load', function() {
-                    var result = JSON.parse(xhr.responseText);
-                    if(result.result != 'ok')return;
-                        document.getElementById('output').value=result.output;
-                });
-            }
-        </script>
-    </div>
-    <div class="emptyBox"></div>
-</div> -->
-
 <!-- Start of footer -->
 
 <h1>문제</h1>
@@ -59,27 +15,37 @@
     <p></p>
     <input id="output" type="text" name="output" style="resize:none; width:400px; height:50px;" readonly="readonly">
     <p></p>
-    <input id="ajax_post" type="button" value="제출하기" class="ajaxsend">
+    <input id="ajax_post" type="button" value="컴파일하기" class="ajaxsend">
     <p></p>
     <script>
         document.querySelector('.ajaxsend').addEventListener('click', function(){
-            sendAjax('http://localhost:3000/writingPost', document.getElementById('code').value);
+            var language = document.getElementById('language').value;
+            sendAjax('http://localhost:3000/writingPost', document.getElementById('code').value, language);
         });
-
+    
         function sendAjax(url, data, language) { 
-            var data = {'code': data};
-            data = JSON.stringify(data);
+            //var data = {'code': data};
+            //data = JSON.stringify(data);
+            var requestData = {'code': data, 'language': language}; // 언어 정보 추가
+            var jsonString = JSON.stringify(requestData);
+            
             var xhr = new XMLHttpRequest();
             xhr.open('POST', url, true);
             xhr.setRequestHeader('Content-type', 'application/json');
-            xhr.send(data);
-
+            //xhr.send(data);
+            xhr.send(jsonString);
+    
             xhr.addEventListener('load', function() {
                 var result = JSON.parse(xhr.responseText);
-                if (result.result !== 'ok') return;
+                if (result.result !== 'ok') {
+                    document.getElementById('output').value = result.error;
+                    return;
+                }
                 document.getElementById('output').value = result.output;
             });
         }
     </script>
+    
+    
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.12.4/jquery.min.js"></script>
 <%-include('footer.ejs')-%>
