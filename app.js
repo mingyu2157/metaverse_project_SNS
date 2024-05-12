@@ -5,7 +5,7 @@ const bodyParser = require('body-parser');
 const mysql = require('mysql');
 const session = require('express-session');
 const passport = require('passport');
-
+const qs = require('querystring');
 const app = express() //espress 변수 지정
 const port = 3000 //포트번호 3000 (localhost:3000)
 const passportConfig = require('./passport'); // require('./passport/index.js')와 같음
@@ -98,7 +98,7 @@ app.post('/signup', (req, res) => {
 //카카오 로그인 연동
 const kakao = {
   clientID: process.env.KAKAO_ID,
-  //clientSecret: process.env.KAKAO_SECRET,
+  clientSecret: process.env.KAKAO_SECRET,
   redirectUri: 'http://localhost:3000/main'
 }
 app.get('/auth/kakao', passport.authenticate('kakao'));
@@ -109,34 +109,33 @@ app.get('/auth/kakao', passport.authenticate('kakao'));
 //     // Successful authentication, redirect home.
 //     res.redirect('/');
 //   });
-app.get('/auth/kakao/callback', async(req,res)=>{
-  try{
-    const token = await axios({
-      method: 'POST',
-      url: 'https://kauth.kakao.com/oauth/token',
-      headers:{
-          'content-type':'application/x-www-form-urlencoded'
+app.get('/auth/kakao/callback', async (req, res) => {
+  try {
+    // 토큰 받아오기
+    const tokenResponse = await axios.post('https://kauth.kakao.com/oauth/token', qs.stringify({
+      grant_type: 'authorization_code',
+      client_id: kakao.clientID,
+      client_secret: kakao.clientSecret,
+      redirect_uri: kakao.redirectUri,
+      code: req.query.code,
+    }), {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
       },
-      data:qs.stringify({
-          grant_type: 'authorization_code',
-          client_id: kakao.clientID, // 수정: clientID 사용
-          // clientSecret:kakao.clientSecret, // 주석 처리: 필요 없음
-          redirect_uri: kakao.redirectUri, // 수정: redirectUri 사용
-          code: req.query.code,
-      })
-    });
-    
-    // 사용자 정보 가져오기
-    const response = await axios({
-      method:'get',
-      url:'https://kapi.kakao.com/v2/user/me',
-      headers:{
-          Authorization: `Bearer ${token.data.accessToken}`
-      }
     });
 
+    const accessToken = tokenResponse.data.access_token;
+
+    // 사용자 정보 가져오기
+    const userResponse = await axios.get('https://kapi.kakao.com/v2/user/me', {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+
+    const userData = userResponse.data;
+
     // 데이터베이스에 저장하기
-    const userData = response.data;
     const queryString = 'INSERT INTO users (username, userID, provider) VALUES (?, ?, ?)';
     const values = [
       userData.properties.nickname,
@@ -146,20 +145,20 @@ app.get('/auth/kakao/callback', async(req,res)=>{
 
     connection.query(queryString, values, (error, results, fields) => {
       if (error) {
-          console.error('Error saving user to database:', error);
-          res.json({ success: false, message: 'Failed to save user data' });
+        console.error('Error saving user to database:', error);
+        res.json({ success: false, message: 'Failed to save user data' });
       } else {
-          console.log('User saved to database successfully:', results);
-          // 여기서 세션에 저장하거나 다른 처리를 할 수 있습니다.
-          req.session.kakao = userData;    
-          res.send('success');
+        console.log('User saved to database successfully:', results);
+        req.session.kakao = userData;
+        res.send('success');
       }
     });
-  } catch(err) {
+  } catch (err) {
     console.error('Error fetching user data from Kakao:', err);
     res.json({ success: false, message: 'Failed to fetch user data from Kakao' });
   }
 });
+
 
 //메인 페이지-----------------------------------------------------------------------------
 app.get('/main', (req, res) => {
