@@ -5,6 +5,7 @@ const bodyParser = require('body-parser');
 const mysql = require('mysql');
 const session = require('express-session');
 const passport = require('passport');
+
 const app = express() //espress 변수 지정
 const port = 3000 //포트번호 3000 (localhost:3000)
 const passportConfig = require('./passport'); // require('./passport/index.js')와 같음
@@ -72,7 +73,7 @@ app.post('/', (req, res) => {
       req.session.user = results[0]; // 로그인한 유저의 정보를 세션에 저장
       res.redirect('/main');
     } else { //로그인 실패
-      res.render('login', {error: '아이디 또는 비밀번호가 올바르지 않습니다.'});
+      res.render('/', {error: '아이디 또는 비밀번호가 올바르지 않습니다.'});
     }
   });
 });
@@ -162,32 +163,36 @@ app.get('/auth/kakao/callback', async(req,res)=>{
 
 //메인 페이지-----------------------------------------------------------------------------
 app.get('/main', (req, res) => {
-  let lastId = parseInt(req.query.lastId);
-  if (isNaN(lastId) || lastId <= 0) {
-    lastId = 9999999999;
-  }
-  let query = 'SELECT posts.*, users.user_name, users.profile_image FROM posts INNER JOIN users ON posts.user_id = users.id WHERE posts.id < ? ORDER BY posts.id DESC LIMIT 10';
-
-  // 검색 키워드를 가져옴
-  const searchKeyword = req.query.search;
-
-  // 검색 키워드가 있는 경우, 쿼리에 검색 조건 추가
-  if (searchKeyword) {
-    query = `SELECT posts.*, users.user_name, users.profile_image FROM posts INNER JOIN users ON posts.user_id = users.id WHERE posts.id < ${lastId} AND hashtags LIKE '%${searchKeyword}%' ORDER BY posts.id DESC LIMIT 10`;
-  }
-
-  connection.query(query, [lastId], (error, results, fields) => {
-    if (error) {
-      console.error('검색 중 오류 발생:', error);
-      res.status(500).send('검색 중 오류가 발생했습니다.');
-    } else {
-      if (req.query.ajax) {
-        res.json(results);
-      } else {
-        res.render('index', {posts: results});
-      }
+  if (req.session.user) { //세션에 로그인 정보 확인
+    let lastId = parseInt(req.query.lastId);
+    if (isNaN(lastId) || lastId <= 0) {
+      lastId = 9999999999;
     }
-  });
+    let query = 'SELECT posts.*, users.user_name, users.profile_image FROM posts INNER JOIN users ON posts.user_id = users.id WHERE posts.id < ? ORDER BY posts.id DESC LIMIT 10';
+  
+    // 검색 키워드를 가져옴
+    const searchKeyword = req.query.search;
+  
+    // 검색 키워드가 있는 경우, 쿼리에 검색 조건 추가
+    if (searchKeyword) {
+      query = `SELECT posts.*, users.user_name, users.profile_image FROM posts INNER JOIN users ON posts.user_id = users.id WHERE posts.id < ${lastId} AND hashtags LIKE '%${searchKeyword}%' ORDER BY posts.id DESC LIMIT 10`;
+    }
+  
+    connection.query(query, [lastId], (error, results, fields) => {
+      if (error) {
+        console.error('검색 중 오류 발생:', error);
+        res.status(500).send('검색 중 오류가 발생했습니다.');
+      } else {
+        if (req.query.ajax) {
+          res.json(results);
+        } else {
+          res.render('index', {posts: results});
+        }
+      }
+    });
+  } else { //세션에 유저 정보가 없다면
+    res.redirect('/'); // 로그인 페이지로 이동
+  }
 });
 
 
@@ -198,45 +203,76 @@ app.get('/profile', (req, res) => {
     // 세션에서 유저 ID 가져오기
     const userId = req.session.user.id;
 
-    // 유저 ID를 이용하여 유저 정보 조회
-    const sql = 'SELECT user_name, introduce, email, profile_image FROM users WHERE id = ?';
-    connection.query(sql, [userId], function(err, result) {
+    // 유저 정보 조회 쿼리
+    const userSql = 'SELECT user_name, introduce, email, profile_image FROM users WHERE id = ?';
+    
+    // 유저가 작성한 게시글 조회 쿼리
+    const postsSql = `
+        SELECT p.id, p.title, p.content, p.hashtags, p.created_at, u.user_name, u.profile_image
+        FROM posts p
+        JOIN users u ON p.user_id = u.id
+        WHERE p.user_id = ?
+        ORDER BY p.created_at DESC
+    `;
+
+    // 유저 정보 조회
+    connection.query(userSql, [userId], function(err, userResult) {
       if (err) throw err;
-      // EJS에 유저 정보 전달 및 렌더링
-      res.render('profile.ejs', { user: result[0] });
+    
+      // 유저가 작성한 게시글 조회 
+      connection.query(postsSql, [userId], function(err, postsResult) {
+        if (err) throw err;
+      
+        // EJS에 유저 정보와 게시글 정보 전달 및 렌더링
+        res.render('profile.ejs', {
+          user: userResult[0],
+          posts: postsResult
+        });
+      });
     });
-  } else { //세션에 유저 정보가 없다면
+  } else { // 세션에 유저 정보가 없다면
     res.redirect('/'); // 로그인 페이지로 이동
   }
 });
 
+
 //타인 프로필 페이지-----------------------------------------------------------------------------
 app.get('/otherProfile', (req, res) => {
-  // 세션에 유저 정보가 있는지 확인
   if (req.session.user) {
-      // userId 쿼리 파라미터 가져오기
       const userId = req.query.userId;
-      
+
       if (!userId) {
           return res.status(400).send('Bad Request: userId is required');
       }
-      
-      // 데이터베이스에서 해당 userId의 사용자 정보 조회
-      const query = "SELECT user_name, profile_image, email, introduce FROM users WHERE id = ?";
-      connection.query(query, [userId], (err, result) => {
+
+      const userQuery = "SELECT user_name, profile_image, email, introduce FROM users WHERE id = ?";
+      connection.query(userQuery, [userId], (err, userResult) => {
           if (err) throw err;
-          
-          // 조회된 사용자 정보가 없으면 404 에러 처리
-          if (result.length === 0) {
+
+          if (userResult.length === 0) {
               return res.status(404).send('User not found');
           }
-          
-          // 조회된 사용자 정보를 otherProfile.ejs로 전달하여 렌더링
-          const userData = result[0];
-          res.render('otherProfile', { user: req.session.user, otherUser: userData });
+
+          const postsQuery = `
+            SELECT posts.id, posts.title, posts.content, posts.hashtags, posts.created_at, users.profile_image, users.user_name
+            FROM posts
+            INNER JOIN users ON posts.user_id = users.id
+            WHERE user_id = ?
+            ORDER BY created_at DESC
+          `;
+
+          connection.query(postsQuery, [userId], (err, postsResult) => {
+              if (err) throw err;
+
+              // 조회된 사용자 정보와 게시글 정보를 otherProfile.ejs로 전달하여 렌더링
+              res.render('otherProfile', { 
+                  user: req.session.user, 
+                  otherUser: userResult[0], 
+                  posts: postsResult 
+              });
+          });
       });
   } else {
-      // 세션에 유저 정보가 없으면 로그인 페이지로 리다이렉트
       res.redirect('/');
   }
 });
@@ -338,3 +374,31 @@ app.post('/writingPost', (req, res) => {
 app.listen(port, () => {
   console.log(`Example app listening on port ${port}`)
 })
+
+app.post('/likePost', (req, res) => {
+  const postId = req.body.post_id;
+
+  // postId에 해당하는 게시물의 좋아요 수를 데이터베이스에서 가져와 증가시킴
+  connection.query('UPDATE posts SET likes = likes + 1 WHERE id = ?', [postId], (error, results, fields) => {
+      if (error) {
+          console.error('Error updating likes:', error);
+          res.json({ success: false, message: 'Failed to update likes' });
+      } else {
+          // 업데이트된 좋아요 수를 클라이언트에게 응답으로 보냄
+          connection.query('SELECT likes FROM posts WHERE id = ?', [postId], (error, results, fields) => {
+              if (error) {
+                  console.error('Error fetching updated likes:', error);
+                  res.json({ success: false, message: 'Failed to fetch updated likes' });
+              } else {
+                  if (results.length > 0) {
+                      const updatedLikesCount = results[0].likes; // 수정된 코드
+                      res.json({ success: true, likes: updatedLikesCount });
+                  } else {
+                      console.error('No likes found for the post');
+                      res.json({ success: false, message: 'No likes found for the post' });
+                  }
+              }
+          });
+      }
+  });
+});
