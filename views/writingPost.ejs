@@ -1,27 +1,56 @@
-<%-include('head.ejs')-%>
+<%- include('head.ejs') -%>
 <!-- End of head -->
-<%-include('header.ejs')-%>
+
+<%- include('header.ejs') -%>
 <!-- End of header -->
 
 <!-- 
     게시글 작성하기
-    1.제목, 코드, 결과값, 태그를 입력하면 DB에 저장, postDetails에 불러올 수 있어야함.
-    2.작성자 정보와 게시글 정보를 DB에 저장 -> DB설계
-    3.'작성하기'버튼 추가
+    1. 제목, 코드, 결과값, 태그를 입력하면 DB에 저장, postDetails에 불러올 수 있어야 함.
+    2. 작성자 정보와 게시글 정보를 DB에 저장 -> DB 설계
+    3. '작성하기' 버튼 추가
 -->
 
 <div class="writingPostBox alignment">
     <div class="emptyBox"></div>
     <div class="writingPost">
         <form action="/writingPost" method="post">
-            <input type="text" id="title" name="title" placeholder="제목">
-            <input type="text" id="hashtags" name="hashtags" placeholder="태그">
-            <textarea id="content" name="content" rows="9" placeholder="내용"></textarea>
-            <textarea id="compileInput" name="compileInput" rows="9" placeholder="코드"></textarea>
-            <textarea id="compileOutput" name="compileOutput" rows="9" placeholder="결과 출력"></textarea>
+            <span>File Name</span>
+            <input type="text" id="filename" name="filename" value="<%= filename %>" placeholder="서버에 저장되는 파일이름입니다. 꼭 입력해주세요." required>
+            <!-- 이전에 입력한 제목, 태그, 내용, 코드, 입력 값 유지 -->
+            <span>Title</span>
+            <input type="text" id="title" name="title" value="<%= title %>" placeholder="제목">
+
+            <span>Hashtag</span>
+            <input type="text" id="hashtags" name="hashtags" value="<%= hashtags %>" placeholder="태그">    
+
+            <span>Content</span>
+            <textarea id="content" name="content" rows="9" placeholder="내용"><%= content %></textarea>
+
+            <span>Language</span>
+            <select id="language" name="language" required>
+                <option value="python">Python</option>
+                <option value="c">C</option>
+            </select>
+
+            <span>Code</span>
+            <textarea id="code" name="code" rows="9" placeholder="게시글에 작성될 코드를 입력하세요." required><%= code %></textarea>
+
+            <span>Input</span>
+            <textarea id="input" name="input" rows="5" cols="50" placeholder="코드에 사용되는 input을 입력합니다. 사용되지 않으면 입력하지 않습니다." ><%= input %></textarea>
+
+            <span>Result</span>
+            <div class="compiler_result">
+                <% if (result !== null) { %>
+                    <pre><%= result %></pre>
+                <% } else { %>
+                    <p>No result yet.</p>
+                <% } %>
+            </div>
+            
             <div class="writingBT">
-                <button type="">컴파일</button>
-                <button type="submit">작성</button>
+                <button type="submit" name="action" value="compile">컴파일</button>
+                <button type="submit" name="action" value="post">작성하기</button>
             </div>
         </form>
     </div>
@@ -29,4 +58,4 @@
 </div>
 
 <!-- Start of footer -->
-<%-include('footer.ejs')-%>
+<%- include('footer.ejs') -%>
