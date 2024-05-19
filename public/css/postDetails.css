@@ -6,7 +6,7 @@
     width: 50%;
     margin: 0 auto;
     position: relative;
-    color:var(--textColor1);
+    color:var(--textColor2);
 }
 .detailUser {
     width: 90%;
@@ -32,7 +32,7 @@
     border: 1px solid var(--signatureColor);
 }
 .detailComments {
-    color:var(--textColor1);
+    color:var(--textColor2);
 }
 .detailComments table {
     width: 90%;
@@ -59,7 +59,7 @@
 .loadCommentsImg img{
     width: 40px;
     height: 40px;
-    border: 1px solid var(--signatureColor);
+    border: none;
     border-radius: 50%;
 }
 .loadCommentsInfo {
