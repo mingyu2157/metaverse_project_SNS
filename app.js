@@ -453,52 +453,53 @@ app.post('/writingPost', (req, res) => {
       });
   }
 });
-// 게시글 수정
-app.get('/writingPost/:id', (req, res) => {
-  const postId = req.params.id; // URL에서 postId를 가져옵니다.
+// 게시글 수정 폼 렌더링
+app.get('/editPost/:id', (req, res) => {
+  const postId = req.params.id;
 
   // postId를 사용하여 데이터베이스에서 해당 게시물을 검색합니다.
   const queryString = 'SELECT * FROM posts WHERE id = ?';
   connection.query(queryString, [postId], (error, results, fields) => {
-      if (error) {
-          console.error('Error fetching post:', error);
-          return res.status(500).json({ success: false, message: 'Failed to fetch post' });
-      } else {
-          // postId에 해당하는 게시물을 찾습니다.
-          const post = results[0]; // 결과가 배열이므로 첫 번째 요소를 가져옵니다.
+    if (error) {
+      console.error('Error fetching post:', error);
+      return res.status(500).json({ success: false, message: 'Failed to fetch post' });
+    } else {
+      // postId에 해당하는 게시물을 찾습니다.
+      const post = results[0]; // 결과가 배열이므로 첫 번째 요소를 가져옵니다.
 
-          if (!post) {
-              return res.status(404).json({ success: false, message: 'Post not found' });
-          }
-
-          // 검색된 결과를 렌더링에 전달합니다.
-          return res.render('writingPost', {
-              user_id: req.session.user,
-              post: post // 게시글 정보를 템플릿으로 전달합니다.
-          });
+      if (!post) {
+        return res.status(404).json({ success: false, message: 'Post not found' });
       }
+
+      // 검색된 결과를 수정 폼 페이지로 렌더링합니다.
+      return res.render('editPost', {
+        user_id: req.session.user,
+        post: post // 게시글 정보를 템플릿으로 전달합니다.
+      });
+    }
   });
 });
 
 // 수정된 게시글을 처리하는 라우트
 app.post('/updatePost/:id', (req, res) => {
   const postId = req.params.id;
-  const { title, content } = req.body;
+  const { title, hashtags, content, code, input, filename, language } = req.body;
 
   // SQL 쿼리 수정
-  const queryString = 'UPDATE posts SET title = ?, content = ? WHERE id = ?';
-  const values = [title, content, postId];
+  const queryString = 'UPDATE posts SET title = ?, hashtags = ?, content = ?, code = ?, input = ?, filename = ? WHERE id = ?';
+  const values = [title, hashtags, content, code, input, filename, postId];
 
   connection.query(queryString, values, (error, results, fields) => {
-      if (error) {
-          console.error('Error updating post:', error);
-          res.status(500).json({ success: false, message: 'Failed to update post' });
-      } else {
-          console.log('Post updated successfully:', results);
-          res.json({ success: true, message: 'Post updated successfully' });
-      }
+    if (error) {
+      console.error('Error updating post:', error);
+      res.status(500).json({ success: false, message: 'Failed to update post' });
+    } else {
+      console.log('Post updated successfully:', results);
+      res.redirect(`/postDetails?postId=${postId}`);
+    }
   });
 });
+
 
 //---------------------------------------------------------------------------------
 
