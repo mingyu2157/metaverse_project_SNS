@@ -555,52 +555,174 @@ app.post('/writingPost', (req, res) => {
       });
   }
 });
-// 게시글 수정 폼 렌더링
+// 게시물 수정 페이지 라우트
 app.get('/editPost/:id', checkOwnership, (req, res) => {
   const postId = req.params.id;
+  const user_id = req.session.user.id; // 사용자 ID를 가져옴
 
-  // postId를 사용하여 데이터베이스에서 해당 게시물을 검색합니다.
   const queryString = 'SELECT * FROM posts WHERE id = ?';
-  connection.query(queryString, [postId], (error, results, fields) => {
+  connection.query(queryString, [postId], (error, results) => {
     if (error) {
       console.error('Error fetching post:', error);
       return res.status(500).json({ success: false, message: 'Failed to fetch post' });
-    } else {
-      // postId에 해당하는 게시물을 찾습니다.
-      const post = results[0]; // 결과가 배열이므로 첫 번째 요소를 가져옵니다.
+    }
 
-      if (!post) {
-        return res.status(404).json({ success: false, message: 'Post not found' });
+    // 게시물이 존재하지 않는 경우
+    if (results.length === 0) {
+      return res.status(404).json({ success: false, message: 'Post not found' });
+    }
+
+    const post = results[0]; // 결과 배열에서 첫 번째 게시물을 추출하여 post에 할당
+
+    // post 객체와 user_id를 editPost.ejs에 전달
+    res.render('editPost', {
+      user_id: user_id,
+      post: post
+    });
+  });
+});
+// 게시물 수정 및 컴파일 요청 처리 라우트
+app.post('/editPost/:id', checkOwnership, (req, res) => {
+  const postId = req.params.id;
+  const { code, filename, language, input } = req.body;
+
+  // 수정된 코드를 컴파일하고 결과를 세션에 저장
+  compileAndSaveResult(code, filename, language, input, (err, result) => {
+    if (err) {
+      console.error('Compile error:', err);
+      return res.status(500).send('Compile error');
+    }
+    
+    // 결과를 세션에 저장
+    req.session.result = result;
+
+    // 수정된 결과를 게시물 편집 페이지에 표시
+    res.render('editPost', {
+      user_id: req.session.user.id,
+      post: {
+        id: postId,
+        filename: filename,
+        code: code,
+        input: input,
+        result: result
       }
+    });
+  });
+});
+app.post('/updatePost/:id', checkOwnership, (req, res) => {
+  const postId = req.params.id;
+  const { title, hashtags, content, code, input, filename, language, action } = req.body;
+    // SQL 쿼리 수정
+  const queryString = 'UPDATE posts SET title = ?, hashtags = ?, content = ?, code = ?, input = ?, filename = ?, user_id = ? WHERE id = ?';
+  const values = [title, hashtags, content, code, input, filename, req.session.user.id, postId]; // user_id를 추가함
 
-      // 검색된 결과를 수정 폼 페이지로 렌더링합니다.
-      return res.render('editPost', {
-        user_id: req.session.user,
-        post: post // 게시글 정보를 템플릿으로 전달합니다.
+  connection.query(queryString, values, (error, results) => {
+      if (error) {
+          console.error('Error updating post:', error);
+          res.status(500).json({ success: false, message: 'Failed to update post' });
+      } else {
+          console.log('Post updated successfully:', results);
+          res.redirect(`/postDetails?postId=${postId}`);
+      }
+  });
+});
+function compileAndSaveResult(code, filename, language, input, callback) {
+  // 컴파일 요청이 있는 경우 처리
+if (action === 'compile') {
+  console.log('컴파일 요청 수신');
+
+  let command, filePath, outputFileName;
+
+  if (language === 'python') {
+    command = 'python';
+    filePath = path.join(__dirname, 'temp', filename + '.py');
+  } else if (language === 'c') {
+    command = 'gcc';
+    filePath = path.join(__dirname, 'temp', filename + '.c');
+    outputFileName = path.join(__dirname, 'temp', filename);
+  } else {
+    console.error('지원되지 않는 언어:', language);
+    return res.status(400).send('지원되지 않는 언어');
+  }
+
+  const userCode = code;
+
+  fs.writeFile(filePath, userCode, (err) => {
+    if (err) {
+      console.error('파일 쓰기 오류:', err);
+      return res.status(500).send('파일 쓰기 오류');
+    }
+
+    if (language === 'python') {
+      const process = spawn(command, [filePath], { stdio: ['pipe', 'pipe', 'pipe'], encoding: 'utf-8' });
+
+      let output = '';
+
+      process.stdout.on('data', (data) => {
+        output += data.toString();
+        console.log(data.toString());
+      });
+
+      process.stderr.on('data', (data) => {
+        output += data.toString();
+        console.error(data.toString());
+      });
+
+      process.on('close', (code) => {
+        if (code === 0) {
+          res.render('editPost', { user_id: req.session.user.id, filename: filename, code: userCode, input: input, result: output, action: 'compile', title: title, hashtags: hashtags, content: content });
+        } else {
+          res.status(500).send('컴파일 실패:\n' + output);
+        }
+      });
+
+      if (input) {
+        process.stdin.write(input);
+        process.stdin.end();
+      }
+    } else if (language === 'c') {
+      const compileProcess = spawn(command, [filePath, '-o', outputFileName]);
+
+      compileProcess.stderr.on('data', (data) => {
+        console.error(data.toString());
+      });
+
+      compileProcess.on('close', (code) => {
+        if (code === 0) {
+          const runProcess = spawn(outputFileName, [], { stdio: ['pipe', 'pipe', 'pipe'], encoding: 'utf-8' });
+
+          let output = '';
+
+          runProcess.stdout.on('data', (data) => {
+            output += data.toString();
+            console.log(data.toString());
+          });
+
+          runProcess.stderr.on('data', (data) => {
+            output += data.toString();
+            console.error(data.toString());
+          });
+
+          runProcess.on('close', (code) => {
+            if (code === 0) {
+              res.render('editPost', { user_id: req.session.user.id, filename: filename, code: userCode, input: input, result: output, action: 'compile', title: title, hashtags: hashtags, content: content });
+            } else {
+              res.status(500).send('실행 실패:\n' + output);
+            }
+          });
+
+          if (input) {
+            runProcess.stdin.write(input);
+            runProcess.stdin.end();
+          }
+        } else {
+          res.status(500).send('컴파일 실패');
+        }
       });
     }
   });
-});
-
-// 수정된 게시글을 처리하는 라우트
-app.post('/updatePost/:id', checkOwnership, (req, res) => {
-  const postId = req.params.id;
-  const { title, hashtags, content, code, input, filename, language } = req.body;
-
-  // SQL 쿼리 수정
-  const queryString = 'UPDATE posts SET title = ?, hashtags = ?, content = ?, code = ?, input = ?, filename = ? WHERE id = ?';
-  const values = [title, hashtags, content, code, input, filename, postId];
-
-  connection.query(queryString, values, (error, results, fields) => {
-    if (error) {
-      console.error('Error updating post:', error);
-      res.status(500).json({ success: false, message: 'Failed to update post' });
-    } else {
-      console.log('Post updated successfully:', results);
-      res.redirect(`/postDetails?postId=${postId}`);
-    }
-  });
-});
+}
+}
 // 게시물 삭제 요청 처리
 app.get('/deletePost/:id', checkOwnership, (req, res) => {
   const postId = req.params.id;

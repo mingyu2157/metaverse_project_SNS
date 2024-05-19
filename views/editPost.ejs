@@ -19,7 +19,13 @@
         
             <span>Content</span>
             <textarea id="content" name="content" rows="9" placeholder="내용"><%= post.content %></textarea>
-        
+            
+            <span>Language</span>
+            <select id="language" name="language" required>
+                <option value="python">Python</option>
+                <option value="c">C</option>
+            </select>
+            
             <span>Code</span>
             <textarea id="code" name="code" rows="9" placeholder="게시글에 작성될 코드를 입력하세요." required><%= post.code %></textarea>
         
