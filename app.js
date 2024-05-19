@@ -84,52 +84,78 @@ app.post('/', (req, res) => {
 });
 
 //회원가입 페이지-----------------------------------------------------------------------------
+app.get('/signup', (req, res) => {
+  res.render('signup');
+});
+
+//회원가입 폼 제출 처리
+app.post('/signup', (req, res) => {
+  const { userID, userPW, email, user_name } = req.body;
+  const user = { userID, userPW, email, user_name };
+  // MySQL에 데이터 저장
+  connection.query('INSERT INTO users SET ?', user, (error, results, fields) => {
+    if (error) throw error;
+    console.log('새로운 회원이 등록되었습니다.');
+    res.redirect('/'); //회원가입이 완료되면 로그인 페이지로 이동
+  });
+});
+
+//헤더-----------------------------
+app.get('/logout', (req, res) => {
+  req.session.destroy(err => {
+      if (err) {
+          return console.log(err);
+      }
+      res.redirect('/');
+  });
+});
+
+//메인 페이지--------------------------------------------------------------------------------
 app.get('/main', (req, res) => {
-  if (req.session.user) { //세션에 로그인 정보 확인
+  if (req.session.user) {
     let lastId = parseInt(req.query.lastId);
     if (isNaN(lastId) || lastId <= 0) {
       lastId = 9999999999;
     }
-    // 검색 키워드를 가져옴
     const searchKeyword = req.query.search;
     let params = [lastId];
 
-    // 기본 쿼리
-    let baseQuery = `SELECT posts.*, users.user_name, users.profile_image 
+    let baseQuery = `SELECT posts.*, users.user_name, users.profile_image, COUNT(comments.id) AS comments_count
                      FROM posts 
-                     INNER JOIN users ON posts.user_id = users.id 
+                     INNER JOIN users ON posts.user_id = users.id
+                     LEFT JOIN comments ON posts.id = comments.post_id
                      WHERE posts.id < ?`;
-    let orderBy = ` ORDER BY posts.id DESC LIMIT 10`;
 
-    // 검색 키워드가 있는 경우, 쿼리 수정
     if (searchKeyword) {
-      baseQuery += " AND hashtags LIKE ?";
+      baseQuery += " AND posts.hashtags LIKE ?";
       params.push(`%${searchKeyword}%`);
     }
 
+    baseQuery += ` GROUP BY posts.id`;
+
+    let orderBy = ` ORDER BY posts.id DESC LIMIT 10`;
+
     let query = baseQuery + orderBy;
 
-    // 인기 게시물 쿼리
     let popularPostsQuery = `
-        SELECT posts.*, COUNT(post_likes.id) AS likes_count 
+        SELECT posts.*, COUNT(post_likes.id) AS likes_count, COUNT(comments.id) AS comments_count
         FROM posts 
         LEFT JOIN post_likes ON posts.id = post_likes.post_id 
+        LEFT JOIN comments ON posts.id = comments.post_id
         WHERE posts.id < ?`;
 
     if (searchKeyword) {
-        popularPostsQuery += " AND hashtags LIKE ?";
-        // params는 이미 lastId와 검색 키워드를 포함하고 있으므로, lastId를 다시 추가할 필요가 없습니다.
+        popularPostsQuery += " AND posts.hashtags LIKE ?";
+        // params 배열은 이미 lastId와 검색 키워드를 포함하고 있으므로 여기서는 추가하지 않습니다.
     }
 
     popularPostsQuery += ` GROUP BY posts.id ORDER BY likes_count DESC`;
 
-    // 인기 게시물 가져오기 쿼리 실행
     connection.query(popularPostsQuery, params, (popularError, popularResults) => {
         if (popularError) {
             console.error('인기 게시물 가져오기 오류:', popularError);
             res.status(500).send('인기 게시물을 가져오는 중 오류가 발생했습니다.');
         } else {
-            // 기본 쿼리 실행
             connection.query(query, params, (error, results) => {
                 if (error) {
                     console.error('검색 중 오류 발생:', error);
@@ -148,7 +174,6 @@ app.get('/main', (req, res) => {
       res.redirect('/');
   }
 });
-
 
 //개인 프로필 페이지-----------------------------------------------------------------------------
 app.get('/profile', (req, res) => {
@@ -510,15 +535,28 @@ app.listen(port, () => {
 
 // 좋아요---------------------------------------------------------------------------
 app.post('/likePost', (req, res) => {
-  const postId = req.body.postId; // 클라이언트에서 보낸 postId를 postId로 가져옴
+  const { postId, userId } = req.body; // 클라이언트에서 보낸 postId와 userId를 받아옴
 
-  // postId에 해당하는 게시물의 좋아요 수를 1 증가시킴
-  connection.query('UPDATE posts SET likes = likes + 1 WHERE id = ?', [postId], (error, results, fields) => {
-      if (error) {
-          console.error('Error updating likes:', error);
-          res.json({ success: false, message: 'Failed to update likes' });
-      } else {
-          res.json({ success: true }); // 성공 응답
-      }
+  // 먼저 해당 사용자가 이미 해당 게시물에 좋아요를 눌렀는지 확인
+  const checkQuery = 'SELECT * FROM likes WHERE postId = ? AND userId = ?';
+  connection.query(checkQuery, [postId, userId], (error, results, fields) => {
+    if (error) {
+      console.error('Error checking like:', error);
+      res.json({ success: false, message: 'Failed to check like' });
+    } else if (results.length > 0) {
+      // 이미 좋아요가 눌러져 있으면 추가하지 않음
+      res.json({ success: false, message: 'Like already exists' });
+    } else {
+      // 좋아요가 없으면 추가
+      const insertQuery = 'INSERT INTO likes (postId, userId) VALUES (?, ?)';
+      connection.query(insertQuery, [postId, userId], (insertError, insertResults, insertFields) => {
+        if (insertError) {
+          console.error('Error inserting like:', insertError);
+          res.json({ success: false, message: 'Failed to insert like' });
+        } else {
+          res.json({ success: true });
+        }
+      });
+    }
   });
 });
