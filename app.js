@@ -61,7 +61,34 @@ app.locals.formatDate = function(date){
   const options = { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false };
   return new Date(date).toLocaleString('ko-KR', options).replace(/\./g, '-').replace(/(\d{4})-(\d{2})-(\d{2})\s(\d{2}:\d{2}:\d{2})/, '$1-$2-$3 $4');
 };
+// 게시물 소유권 확인 미들웨어
+function checkOwnership(req, res, next) {
+  const postId = req.params.id;
+  const userId = req.session.user.id; // 세션에서 사용자 ID 가져오기
 
+  // 게시물 조회 쿼리
+  const getPostQuery = 'SELECT user_id FROM posts WHERE id = ?';
+
+  connection.query(getPostQuery, [postId], (error, results) => {
+      if (error) {
+          console.error('Error fetching post:', error);
+          return res.status(500).json({ success: false, message: 'Failed to fetch post' });
+      }
+
+      if (results.length === 0) {
+          return res.status(404).json({ success: false, message: 'Post not found' });
+      }
+
+      const post = results[0];
+
+      // 게시물의 작성자와 세션 사용자가 일치하는지 확인
+      if (post.user_id === userId) {
+          return next(); // 일치하면 다음 미들웨어로 이동
+      } else {
+          return res.status(403).json({ success: false, message: 'You do not have permission to perform this action' });
+      }
+  });
+}
 
 //로그인 페이지-----------------------------------------------------------------------------
 app.get('/', (req, res) => {
@@ -113,63 +140,75 @@ app.get('/logout', (req, res) => {
 //메인 페이지--------------------------------------------------------------------------------
 app.get('/main', (req, res) => {
   if (req.session.user) {
-    let lastId = parseInt(req.query.lastId);
-    if (isNaN(lastId) || lastId <= 0) {
-      lastId = 9999999999;
-    }
-    const searchKeyword = req.query.search;
-    let params = [lastId];
+      let lastId = parseInt(req.query.lastId);
+      if (isNaN(lastId) || lastId <= 0) {
+          lastId = 9999999999;
+      }
+      let query = 'SELECT posts.*, users.user_name, users.profile_image FROM posts INNER JOIN users ON posts.user_id = users.id WHERE posts.id < ? ORDER BY posts.id DESC LIMIT 10';
 
-    let baseQuery = `SELECT posts.*, users.user_name, users.profile_image, COUNT(comments.id) AS comments_count
-                     FROM posts 
-                     INNER JOIN users ON posts.user_id = users.id
-                     LEFT JOIN comments ON posts.id = comments.post_id
-                     WHERE posts.id < ?`;
+      const searchKeyword = req.query.search;
 
-    if (searchKeyword) {
-      baseQuery += " AND posts.hashtags LIKE ?";
-      params.push(`%${searchKeyword}%`);
-    }
+      if (searchKeyword) {
+          query = `SELECT posts.*, users.user_name, users.profile_image FROM posts INNER JOIN users ON posts.user_id = users.id WHERE posts.id < ${lastId} AND hashtags LIKE '%${searchKeyword}%' ORDER BY posts.id DESC LIMIT 10`;
+      }
 
-    baseQuery += ` GROUP BY posts.id`;
+      // 수정된 인기 게시물 쿼리 추가
+      let popularPostsQuery;
+      if (searchKeyword) {
+          popularPostsQuery = `
+              SELECT 
+                  posts.*, 
+                  COUNT(post_likes.id) AS likes_count 
+              FROM 
+                  posts 
+              LEFT JOIN 
+                  post_likes ON posts.id = post_likes.post_id 
+              WHERE 
+                  posts.id < ? AND (hashtags LIKE '%${searchKeyword}%')
+              GROUP BY 
+                  posts.id 
+              ORDER BY 
+                  posts.likes DESC;  -- posts 테이블의 likes 열을 기준으로 내림차순 정렬
+          `;
+      } else {
+          popularPostsQuery = `
+              SELECT 
+                  posts.*, 
+                  COUNT(post_likes.id) AS likes_count 
+              FROM 
+                  posts 
+              LEFT JOIN 
+                  post_likes ON posts.id = post_likes.post_id 
+              WHERE 
+                  posts.id < ?
+              GROUP BY 
+                  posts.id 
+              ORDER BY 
+                  posts.likes DESC;  -- posts 테이블의 likes 열을 기준으로 내림차순 정렬
+          `;
+      }
 
-    let orderBy = ` ORDER BY posts.id DESC LIMIT 10`;
-
-    let query = baseQuery + orderBy;
-
-    let popularPostsQuery = `
-        SELECT posts.*, COUNT(post_likes.id) AS likes_count, COUNT(comments.id) AS comments_count
-        FROM posts 
-        LEFT JOIN post_likes ON posts.id = post_likes.post_id 
-        LEFT JOIN comments ON posts.id = comments.post_id
-        WHERE posts.id < ?`;
-
-    if (searchKeyword) {
-        popularPostsQuery += " AND posts.hashtags LIKE ?";
-        // params 배열은 이미 lastId와 검색 키워드를 포함하고 있으므로 여기서는 추가하지 않습니다.
-    }
-
-    popularPostsQuery += ` GROUP BY posts.id ORDER BY likes_count DESC`;
-
-    connection.query(popularPostsQuery, params, (popularError, popularResults) => {
-        if (popularError) {
-            console.error('인기 게시물 가져오기 오류:', popularError);
-            res.status(500).send('인기 게시물을 가져오는 중 오류가 발생했습니다.');
-        } else {
-            connection.query(query, params, (error, results) => {
-                if (error) {
-                    console.error('검색 중 오류 발생:', error);
-                    res.status(500).send('검색 중 오류가 발생했습니다.');
-                } else {
-                    if (req.query.ajax) {
-                        res.json({ posts: results, popularPosts: popularResults });
-                    } else {
-                        res.render('index', { posts: results, popularPosts: popularResults });
-                    }
-                }
-            });
-        }
-    });
+      // 인기 게시물 가져오기 쿼리를 실행
+      connection.query(popularPostsQuery, [lastId], (popularError, popularResults) => {
+          if (popularError) {
+              console.error('인기 게시물 가져오기 오류:', popularError);
+              res.status(500).send('인기 게시물을 가져오는 중 오류가 발생했습니다.');
+          } else {
+              // 여기에 인기 게시물을 처리하는 코드 작성
+              connection.query(query, [lastId], (error, results, fields) => {
+                  if (error) {
+                      console.error('검색 중 오류 발생:', error);
+                      res.status(500).send('검색 중 오류가 발생했습니다.');
+                  } else {
+                      if (req.query.ajax) {
+                          res.json({ posts: results, popularPosts: popularResults });
+                      } else {
+                          res.render('index', { posts: results, popularPosts: popularResults });
+                      }
+                  }
+              });
+          }
+      });
   } else {
       res.redirect('/');
   }
@@ -286,10 +325,46 @@ app.post('/updateProfile', (req, res) => {
 });
 
 //게시글 페이지-----------------------------------------------------------------------------
+// app.get('/postDetails', (req, res) => {
+//   if (req.session.user) {
+
+//     const postId = req.query.postId;
+
+//     let postQuery = `
+//       SELECT posts.*, users.user_name, users.profile_image 
+//       FROM posts 
+//       JOIN users ON posts.user_id = users.id 
+//       WHERE posts.id = ?`;
+//     let commentsQuery = `
+//       SELECT comments.*, users.user_name, users.profile_image 
+//       FROM comments 
+//       JOIN users ON comments.user_id = users.id 
+//       WHERE comments.post_id = ? 
+//       ORDER BY comments.id DESC`;
+
+//     connection.query(postQuery, [postId], (error, postResults) => {
+//       if (error) throw error;
+      
+//       if (postResults.length > 0) {
+//         const post = postResults[0];
+        
+//         // 게시글에 대한 댓글을 불러옵니다.
+//         connection.query(commentsQuery, [postId], (error, commentResults) => {
+//           if (error) throw error;
+//           res.render('postDetails', { user: req.session.user, post: post, comments: commentResults });
+//         });
+//       } else {
+//         res.send('게시글을 찾을 수 없습니다.');
+//       }
+//     });
+//   } else {
+//     res.redirect('/');
+//   }
+// });
 app.get('/postDetails', (req, res) => {
   if (req.session.user) {
-
     const postId = req.query.postId;
+    const userId = req.session.user.id;
 
     let postQuery = `
       SELECT posts.*, users.user_name, users.profile_image 
@@ -305,14 +380,15 @@ app.get('/postDetails', (req, res) => {
 
     connection.query(postQuery, [postId], (error, postResults) => {
       if (error) throw error;
-      
+
       if (postResults.length > 0) {
         const post = postResults[0];
-        
+        const isOwner = userId === post.user_id;
+
         // 게시글에 대한 댓글을 불러옵니다.
         connection.query(commentsQuery, [postId], (error, commentResults) => {
           if (error) throw error;
-          res.render('postDetails', { user: req.session.user, post: post, comments: commentResults });
+          res.render('postDetails', { user: req.session.user, post: post, comments: commentResults, isOwner: isOwner });
         });
       } else {
         res.send('게시글을 찾을 수 없습니다.');
@@ -322,6 +398,7 @@ app.get('/postDetails', (req, res) => {
     res.redirect('/');
   }
 });
+
 
 // 댓글 작성 폼 제출
 app.post('/addComment', (req, res) => {
@@ -479,7 +556,7 @@ app.post('/writingPost', (req, res) => {
   }
 });
 // 게시글 수정 폼 렌더링
-app.get('/editPost/:id', (req, res) => {
+app.get('/editPost/:id', checkOwnership, (req, res) => {
   const postId = req.params.id;
 
   // postId를 사용하여 데이터베이스에서 해당 게시물을 검색합니다.
@@ -506,7 +583,7 @@ app.get('/editPost/:id', (req, res) => {
 });
 
 // 수정된 게시글을 처리하는 라우트
-app.post('/updatePost/:id', (req, res) => {
+app.post('/updatePost/:id', checkOwnership, (req, res) => {
   const postId = req.params.id;
   const { title, hashtags, content, code, input, filename, language } = req.body;
 
@@ -524,7 +601,31 @@ app.post('/updatePost/:id', (req, res) => {
     }
   });
 });
+// 게시물 삭제 요청 처리
+app.get('/deletePost/:id', checkOwnership, (req, res) => {
+  const postId = req.params.id;
 
+  // 댓글 삭제
+  const deleteCommentsQuery = 'DELETE FROM comments WHERE post_id = ?';
+  connection.query(deleteCommentsQuery, [postId], (error, commentResults) => {
+      if (error) {
+          console.error('Error deleting comments:', error);
+          return res.status(500).json({ success: false, message: 'Failed to delete comments' });
+      }
+
+      // 게시물 삭제
+      const deletePostQuery = 'DELETE FROM posts WHERE id = ?';
+      connection.query(deletePostQuery, [postId], (error, postResults) => {
+          if (error) {
+              console.error('Error deleting post:', error);
+              return res.status(500).json({ success: false, message: 'Failed to delete post' });
+          }
+
+          console.log('Post and related comments deleted successfully');
+          res.redirect('/main');
+      });
+  });
+});
 
 //---------------------------------------------------------------------------------
 
