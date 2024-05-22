@@ -19,7 +19,7 @@ passportConfig(); // 패스포트 설정, 한 번 실행해두면 ()에 있는 d
 const connection = mysql.createConnection({
   host: 'localhost',
   user: 'root',
-  password: '0000',
+  password: '1234',
   database: 'mz_database'
 })
 
@@ -368,18 +368,18 @@ app.post('/addComment', (req, res) => {
 //게시글작성-----------------------------------------------------------------------------------------------------
 app.get('/writingPost', (req, res) => {
   if (req.session.user) {
-    return res.render('writingPost', { 
-      user_id: req.session.user, 
-      filename: '', 
-      code: '', // 코드 변수를 빈 문자열로 전달
-      input: '', 
-      result: null,
-      title: '', 
-      hashtags: '', 
-      content: '' 
-    });
+      return res.render('writingPost', { 
+          user_id: req.session.user.id, 
+          filename: '', 
+          code: '', 
+          input: '', 
+          result: null,
+          title: '', 
+          hashtags: '', 
+          content: '' 
+      });
   } else {
-    return res.redirect('/');
+      return res.redirect('/');
   }
 });
 
@@ -439,7 +439,9 @@ app.post('/writingPost', (req, res) => {
                       req.session.result = output; // 결과를 세션에 저장
                       res.render('writingPost', { user_id: req.session.user.id, filename: filename, code: userCode, input: input, result: output, action: 'compile', title: title, hashtags: hashtags, content: content });
                   } else {
-                      res.status(500).send('컴파일 실패:\n' + output);
+                      // 오류가 발생한 경우에도 결과를 세션에 저장하고 렌더링
+                      req.session.result = output;
+                      res.render('writingPost', { user_id: req.session.user.id, filename: filename, code: userCode, input: input, result: '컴파일 실패:\n' + output, action: 'compile', title: title, hashtags: hashtags, content: content });
                   }
               });
 
@@ -451,6 +453,7 @@ app.post('/writingPost', (req, res) => {
               const compileProcess = spawn(command, [filePath, '-o', outputFileName]);
 
               compileProcess.stderr.on('data', (data) => {
+                  output += data.toString();
                   console.error(data.toString());
               });
 
@@ -476,7 +479,9 @@ app.post('/writingPost', (req, res) => {
                               req.session.result = output; // 결과를 세션에 저장
                               res.render('writingPost', { user_id: req.session.user.id, filename: filename, code: userCode, input: input, result: output, action: 'compile', title: title, hashtags: hashtags, content: content });
                           } else {
-                              res.status(500).send('실행 실패:\n' + output);
+                              // 오류가 발생한 경우에도 결과를 세션에 저장하고 렌더링
+                              req.session.result = output;
+                              res.render('writingPost', { user_id: req.session.user.id, filename: filename, code: userCode, input: input, result: '실행 실패:\n' + output, action: 'compile', title: title, hashtags: hashtags, content: content });
                           }
                       });
 
@@ -485,7 +490,9 @@ app.post('/writingPost', (req, res) => {
                           runProcess.stdin.end();
                       }
                   } else {
-                      res.status(500).send('컴파일 실패');
+                      // 컴파일 오류 발생 시에도 결과를 세션에 저장하고 렌더링
+                      req.session.result = output;
+                      res.render('writingPost', { user_id: req.session.user.id, filename: filename, code: userCode, input: input, result: '컴파일 실패:\n' + output, action: 'compile', title: title, hashtags: hashtags, content: content });
                   }
               });
           }
@@ -504,6 +511,7 @@ app.post('/writingPost', (req, res) => {
       });
   }
 });
+
 
 //게시글 수정---------------------------------------------------------------------------------
 app.get('/editPost/:id', checkOwnership, (req, res) => {
